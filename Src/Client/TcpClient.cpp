@@ -1,27 +1,65 @@
-#include <iostream>
-#include <boost/asio.hpp>
-
-#include "Common.hpp"
-#include "json.hpp"
+#include "TcpClient.h"
 
 using boost::asio::ip::tcp;
 
-// Отправка сообщения на сервер по шаблону.
-void SendMessage(
-    tcp::socket& aSocket,
-    const std::string& aId,
-    const std::string& aRequestType,
-    const std::string& aMessage)
+//Establishing a connection to a server
+void TcpClient::ConnectToServer(const std::string &adress)
 {
-    nlohmann::json req;
-    req["UserId"] = aId;
-    req["ReqType"] = aRequestType;
-    req["Message"] = aMessage;
+  tcp::resolver resolver(ioService);
+  tcp::resolver::query query(tcp::v4(),adress, std::to_string(port));
+  tcp::resolver::iterator iterator = resolver.resolve(query);
 
-    std::string request = req.dump();
-    boost::asio::write(aSocket, boost::asio::buffer(request, request.size()));
+  tcp::socket socket(ioService);
+
+  socket.async_connect(*iterator, 
+    [this](const boost::system::error_code &error)
+    {
+      if (!error)
+      {
+        emit Connected();
+        StartRead();
+      }
+    });
+
+    ioService.run();
 }
 
+//Reading data from the server
+void TcpClient::StartRead()
+{
+  boost::asio::async_read(socket, boost::asio::buffer(buffer), 
+    [this](const boost::system::error_code &error)
+    {
+      if (!error)
+      {
+        emit DataRecieved();
+        StartRead();
+      }
+      else
+        socket.close();
+    });
+}
+
+//Sending a Data to Server with json template;
+void TcpClient::SendData(const std::string& strUserId, const std::string& strRequestType, const std::string& strMessage)
+{
+    nlohmann::json jRequest;
+    jRequest["UserId"] = strUserId;
+    jRequest["ReqType"] = strRequestType;
+    jRequest["Message"] = strMessage;
+
+    std::string request = jRequest.dump();
+
+    boost::asio::async_write(socket, boost::asio::buffer(request, request.size()),
+    [this](const boost::system::error_code &error)
+    {
+      if (!error)
+        emit DataSent();
+    }); //Add param size_t bytes if need to know bytes transfered
+}
+
+/*
+OLD TEMPLATE STILL NEED TO REFACTOR
 // Возвращает строку с ответом сервера на последний запрос.
 std::string ReadMessage(tcp::socket& aSocket)
 {
@@ -103,3 +141,4 @@ int main()
 
     return 0;
 }
+*/
